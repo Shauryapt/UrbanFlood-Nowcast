@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+numpy
+pillow
+requests
+rasterio
+tzdata

@@ -1,0 +1,17 @@
+{
+  "name": "Mumbai",
+  "region": "Maharashtra, IN",
+  "timezone": "Asia/Kolkata",
+  "bbox": {"west": 72.77, "south": 18.89, "east": 72.99, "north": 19.28},
+  "map": {"center": [72.865, 19.07], "zoom": 11.2},
+  "grid": {"cell_m": 300},
+  "coastal": true,
+  "tide": {"mean_range_m": 3.5, "outfall_submergence": 0.6, "note": "Representative semi-diurnal (M2) tide at sea outfalls"},
+  "drainage": {"block_cells": 4, "design_i_mmph": 25.0, "note": "Representative network sized at a 25 mm/h legacy design intensity"},
+  "historical_spots": {
+    "url": "https://cityresource.in/MumbaiFloods/data/exp_ChronicFloodingSpots.js",
+    "format": "qgis2web_buffers",
+    "label": "Chronic flooding spots (community-digitised web map, cityresource.in)",
+    "page": "https://cityresource.in/MumbaiFloods/"
+  }
+}

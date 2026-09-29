@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+backend/data/cities/*/raw/
+node_modules/
+.next/
+frontend/public/maplibre/
+.playwright-mcp/

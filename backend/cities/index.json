@@ -1,0 +1,7 @@
+[
+  {"id": "mumbai", "name": "Mumbai", "region": "Maharashtra, IN", "status": "ready"},
+  {"id": "delhi", "name": "Delhi", "region": "NCT of Delhi, IN", "status": "planned"},
+  {"id": "bengaluru", "name": "Bengaluru", "region": "Karnataka, IN", "status": "planned"},
+  {"id": "kolkata", "name": "Kolkata", "region": "West Bengal, IN", "status": "planned"},
+  {"id": "chennai", "name": "Chennai", "region": "Tamil Nadu, IN", "status": "planned"}
+]
