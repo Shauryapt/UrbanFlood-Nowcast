@@ -11,9 +11,15 @@ export const metadata: Metadata = {
   description: "Urban Flood Intelligence & 0–3 Hour Nowcasting",
 };
 
+// Apply the stored theme before first paint (dark is the default).
+const THEME_SCRIPT = `try{if(localStorage.getItem("ufn-theme")==="light")document.documentElement.dataset.theme="light"}catch(e){}`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${body.variable} ${cond.variable} ${data.variable}`}>
+    <html lang="en" className={`${body.variable} ${cond.variable} ${data.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>{children}</body>
     </html>
   );

@@ -3,9 +3,9 @@ import { useEffect } from "react";
 import type { DataClass, Meta } from "@/lib/types";
 
 const TAG: Record<DataClass, { color: string; text: string }> = {
-  REAL: { color: "var(--color-real)", text: "Real" },
-  REPRESENTATIVE: { color: "var(--color-repr)", text: "Representative" },
-  SIMULATED: { color: "var(--color-sim)", text: "Simulated" },
+  REAL: { color: "var(--real)", text: "Real" },
+  REPRESENTATIVE: { color: "var(--repr)", text: "Representative" },
+  SIMULATED: { color: "var(--sim)", text: "Simulated" },
 };
 
 export function DataTag({ cls }: { cls: DataClass }) {

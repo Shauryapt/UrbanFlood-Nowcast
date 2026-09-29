@@ -87,4 +87,10 @@ export interface Params {
   tide: string;
 }
 
-export type LayerKey = "risk" | "rain" | "drainage" | "roads" | "waterways" | "historical";
+/** One thematic grid surface is shown at a time; overlays are independent. */
+export type Surface = "risk" | "depth" | "rain" | "elevation" | "imperv" | "none";
+export type OverlayKey = "alerts" | "stress" | "network" | "roads" | "waterways" | "historical";
+export type Theme = "dark" | "light";
+
+/** Static per-cell inputs already used by the model (same cell order as Nowcast.cells). */
+export interface StaticGrid { cells: number[]; elev_m: number[]; imperv: number[] }

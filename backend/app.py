@@ -88,6 +88,15 @@ def layer(city_id: str, name: str):
     return FileResponse(f, media_type="application/geo+json")
 
 
+@app.get("/api/cities/{city_id}/static")
+def static_grid(city_id: str):
+    """Read-only: the static per-cell inputs the model already uses (for map display only)."""
+    city_or_404(city_id)
+    m = model.get_model(city_id)
+    return dict(cells=m.idx.tolist(), elev_m=[round(float(v), 1) for v in m.elev],
+                imperv=[round(float(v), 3) for v in m.imperv])
+
+
 _live_cache: dict = {}
 
 

@@ -1,17 +1,27 @@
 "use client";
 import { fmtLead, fmtT, RISK_COLORS } from "@/lib/api";
-import type { Alert, LayerKey, Meta, Params } from "@/lib/types";
+import type { ScenarioMetrics } from "@/lib/metrics";
+import type { Alert, Meta, OverlayKey, Params, Surface } from "@/lib/types";
 import { CLASSES } from "@/lib/types";
+import ScenarioCompare, { type Baseline } from "./ScenarioCompare";
 
 const TIDE_LABEL: Record<string, string> = { low: "Low tide", rising: "Rising", high: "High tide" };
 
-const LAYER_ROWS: { key: LayerKey; label: string; swatch: React.ReactNode }[] = [
-  { key: "risk", label: "Flood risk", swatch: <span className="flex">{[1, 2, 3].map((c) => <i key={c} className="h-2.5 w-1.5" style={{ background: RISK_COLORS[c] }} />)}</span> },
-  { key: "rain", label: "Rainfall", swatch: <i className="h-2.5 w-4 bg-gradient-to-r from-[#1c3a4d] to-[#6fb3d6]" /> },
-  { key: "drainage", label: "Drainage stress", swatch: <i className="h-[2px] w-4 bg-r1" /> },
-  { key: "roads", label: "Roads", swatch: <i className="h-[2px] w-4 bg-[#8795a1]" /> },
-  { key: "waterways", label: "Waterways", swatch: <i className="h-[2px] w-4 bg-[#3e7394]" /> },
-  { key: "historical", label: "Historical flooding spots", swatch: <i className="h-2.5 w-2.5 rounded-full border border-[#dfe6ea]" /> },
+const SURFACES: { key: Surface; label: string }[] = [
+  { key: "risk", label: "Flood risk" },
+  { key: "depth", label: "Predicted depth" },
+  { key: "rain", label: "Rainfall" },
+  { key: "elevation", label: "Elevation" },
+  { key: "imperv", label: "Imperviousness" },
+  { key: "none", label: "None" },
+];
+const OVERLAYS: { key: OverlayKey; label: string }[] = [
+  { key: "alerts", label: "Alerts" },
+  { key: "stress", label: "Drainage stress" },
+  { key: "network", label: "Drainage network" },
+  { key: "roads", label: "Roads" },
+  { key: "waterways", label: "Waterways" },
+  { key: "historical", label: "Historical flood spots" },
 ];
 
 interface Props {
@@ -19,17 +29,24 @@ interface Props {
   params: Params;
   setParams: (p: Partial<Params>) => void;
   liveError: string | null;
-  layers: Record<LayerKey, boolean>;
-  toggleLayer: (k: LayerKey) => void;
+  surface: Surface;
+  setSurface: (s: Surface) => void;
+  overlays: Record<OverlayKey, boolean>;
+  toggleOverlay: (k: OverlayKey) => void;
   alerts: { t_min: number; total: number; items: Alert[] } | null;
   selected: number | null;
-  onSelect: (cell: number) => void;
+  onSelectAlert: (cell: number) => void;
+  baseline: Baseline | null;
+  current: ScenarioMetrics | null;
+  currentLabel: string;
+  onCapture: () => void;
+  onClearBaseline: () => void;
 }
 
-function Section({ title, right, children }: { title: string; right?: React.ReactNode; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="border-b border-line px-3 py-2.5">
-      <div className="mb-2 flex items-baseline justify-between"><h2 className="label text-ink/80">{title}</h2>{right}</div>
+      <h2 className="label mb-2 text-ink/80">{title}</h2>
       {children}
     </section>
   );
@@ -46,10 +63,11 @@ function Slider({ label, value, display, min, max, step, onChange }: {
   );
 }
 
-export default function ControlPanel({ meta, params, setParams, liveError, layers, toggleLayer, alerts, selected, onSelect }: Props) {
+export default function ControlPanel(p: Props) {
+  const { meta, params, setParams, liveError, alerts, selected } = p;
   const scen = meta.model.scenarios;
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col scroll-thin lg:overflow-y-auto">
       <Section title="Scenario">
         <div className="mb-2 grid grid-cols-2 border border-line-strong text-[12px]" role="radiogroup" aria-label="Rainfall source">
           {(["live", "scenario"] as const).map((s) => (
@@ -83,23 +101,34 @@ export default function ControlPanel({ meta, params, setParams, liveError, layer
             </div>
           </div>
         )}
+        <ScenarioCompare baseline={p.baseline} current={p.current} currentLabel={p.currentLabel}
+          onCapture={p.onCapture} onClear={p.onClearBaseline} />
       </Section>
 
-      <Section title="Layers">
-        <ul className="space-y-1">
-          {LAYER_ROWS.map((l) => (
-            <li key={l.key}>
-              <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-                <input type="checkbox" checked={layers[l.key]} onChange={() => toggleLayer(l.key)} className="accent-[#7fa6bd]" />
-                <span className="flex w-5 items-center justify-center">{l.swatch}</span>
-                <span className={layers[l.key] ? "text-ink" : "text-faint"}>{l.label}</span>
+      <Section title="Map layers">
+        <div className="grid grid-cols-[auto_1fr] gap-x-4">
+          <fieldset>
+            <legend className="mb-1 text-[11px] text-faint">Surface</legend>
+            {SURFACES.map((s) => (
+              <label key={s.key} className="flex cursor-pointer items-center gap-1.5 py-[1px] text-[12px]">
+                <input type="radio" name="surface" checked={p.surface === s.key} onChange={() => p.setSurface(s.key)} />
+                <span className={p.surface === s.key ? "text-ink" : "text-dim"}>{s.label}</span>
               </label>
-            </li>
-          ))}
-        </ul>
+            ))}
+          </fieldset>
+          <fieldset>
+            <legend className="mb-1 text-[11px] text-faint">Overlays</legend>
+            {OVERLAYS.map((o) => (
+              <label key={o.key} className="flex cursor-pointer items-center gap-1.5 py-[1px] text-[12px]">
+                <input type="checkbox" checked={p.overlays[o.key]} onChange={() => p.toggleOverlay(o.key)} />
+                <span className={p.overlays[o.key] ? "text-ink" : "text-dim"}>{o.label}</span>
+              </label>
+            ))}
+          </fieldset>
+        </div>
       </Section>
 
-      <section className="flex min-h-0 flex-1 flex-col">
+      <section className="flex min-h-[220px] flex-1 flex-col">
         <div className="flex items-baseline justify-between px-3 pb-1.5 pt-2.5">
           <h2 className="label text-ink/80">Alerts · {alerts ? fmtT(alerts.t_min) : "—"}</h2>
           <span className="num text-[11px] text-dim">{alerts ? `${alerts.total} zones` : ""}</span>
@@ -108,7 +137,7 @@ export default function ControlPanel({ meta, params, setParams, liveError, layer
         <ol className="scroll-thin min-h-0 flex-1 overflow-y-auto">
           {alerts?.items.map((a) => (
             <li key={a.cell}>
-              <button onClick={() => onSelect(a.cell)}
+              <button onClick={() => p.onSelectAlert(a.cell)}
                 className={`grid w-full grid-cols-[4px_1fr_auto] gap-x-2 border-t border-line px-3 py-1.5 text-left hover:bg-raise ${selected === a.cell ? "bg-raise" : ""}`}>
                 <i className="row-span-2 h-full" style={{ background: RISK_COLORS[CLASSES.indexOf(a.cls)] }} />
                 <span className="truncate text-[12px] text-ink">{a.place ? `Near ${a.place}` : `Zone ${a.node}`}</span>

@@ -1,23 +1,63 @@
 @import "tailwindcss";
 @import "maplibre-gl/dist/maplibre-gl.css";
 
+/* Design tokens. Dark is the default; [data-theme="light"] overrides only the tokens. */
+:root {
+  color-scheme: dark;
+  --ground: #0d1318;
+  --panel: #131b21;
+  --raise: #1a232b;
+  --line: #24303a;
+  --line-strong: #33424e;
+  --ink: #d5dde3;
+  --dim: #8997a3;
+  --faint: #66737e;
+  --steel: #7fa6bd;      /* interactive / selection */
+  --water: #4f86a6;      /* rainfall & water only */
+  --r1: #d4b24c;         /* Moderate */
+  --r2: #e07b39;         /* High */
+  --r3: #d0353f;         /* Severe */
+  --real: #6fae8a;
+  --repr: #c9a25a;
+  --sim: #9a8fc0;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ground: #e9edf0;
+  --panel: #f7f8f9;
+  --raise: #e4e9ed;
+  --line: #d3dae0;
+  --line-strong: #aeb9c2;
+  --ink: #17212b;
+  --dim: #46535f;
+  --faint: #5f6b76;
+  --steel: #2b6a8e;
+  --water: #2f76a3;
+  --r1: #a88410;
+  --r2: #c85a17;
+  --r3: #b01f2a;
+  --real: #2b7a4e;
+  --repr: #8f6210;
+  --sim: #5d4f9e;
+}
+
 @theme inline {
-  --color-ground: #0d1318;
-  --color-panel: #131b21;
-  --color-raise: #1a232b;
-  --color-line: #24303a;
-  --color-line-strong: #33424e;
-  --color-ink: #d5dde3;
-  --color-dim: #8997a3;
-  --color-faint: #5c6a75;
-  --color-steel: #7fa6bd;      /* interactive / selection */
-  --color-water: #4f86a6;      /* rainfall & water only */
-  --color-r1: #d4b24c;         /* Moderate */
-  --color-r2: #e07b39;         /* High */
-  --color-r3: #c8313a;         /* Severe */
-  --color-real: #6fae8a;
-  --color-repr: #c9a25a;
-  --color-sim: #9a8fc0;
+  --color-ground: var(--ground);
+  --color-panel: var(--panel);
+  --color-raise: var(--raise);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-dim: var(--dim);
+  --color-faint: var(--faint);
+  --color-steel: var(--steel);
+  --color-water: var(--water);
+  --color-r1: var(--r1);
+  --color-r2: var(--r2);
+  --color-r3: var(--r3);
+  --color-real: var(--real);
+  --color-repr: var(--repr);
+  --color-sim: var(--sim);
   --font-sans: var(--font-body);
   --font-cond: var(--font-cond);
   --font-mono: var(--font-data);
@@ -25,8 +65,8 @@
 
 html, body { height: 100%; }
 body {
-  background: var(--color-ground);
-  color: var(--color-ink);
+  background: var(--ground);
+  color: var(--ink);
   font-family: var(--font-body), system-ui, sans-serif;
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
@@ -38,21 +78,22 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   font-size: 11px;
-  color: var(--color-dim);
+  color: var(--dim);
 }
 .num { font-family: var(--font-data), ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
-:focus-visible { outline: 1px solid var(--color-steel); outline-offset: 1px; }
+:focus-visible { outline: 1px solid var(--steel); outline-offset: 1px; }
 
-input[type="range"] { accent-color: var(--color-steel); height: 14px; }
+input[type="range"] { accent-color: var(--steel); height: 14px; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--steel); }
 
-.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+.scroll-thin { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 
-.maplibregl-ctrl-group { background: var(--color-panel) !important; border: 1px solid var(--color-line); border-radius: 2px !important; box-shadow: none !important; }
-.maplibregl-ctrl-group button + button { border-top: 1px solid var(--color-line) !important; }
-.maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.8); }
-.maplibregl-ctrl-attrib { background: rgba(13,19,24,.75) !important; color: var(--color-faint); font-size: 10px; }
-.maplibregl-ctrl-attrib a { color: var(--color-dim) !important; }
-.maplibregl-ctrl-scale { background: rgba(13,19,24,.6); color: var(--color-dim); border-color: var(--color-dim); font-size: 10px; }
+.maplibregl-ctrl-group { background: var(--panel) !important; border: 1px solid var(--line); border-radius: 2px !important; box-shadow: none !important; }
+.maplibregl-ctrl-group button + button { border-top: 1px solid var(--line) !important; }
+:root:not([data-theme="light"]) .maplibregl-ctrl-group button .maplibregl-ctrl-icon { filter: invert(0.8); }
+.maplibregl-ctrl-attrib { background: color-mix(in srgb, var(--ground) 80%, transparent) !important; color: var(--faint); font-size: 10px; }
+.maplibregl-ctrl-attrib a { color: var(--dim) !important; }
+.maplibregl-ctrl-scale { background: color-mix(in srgb, var(--ground) 65%, transparent); color: var(--dim); border-color: var(--dim); font-size: 10px; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

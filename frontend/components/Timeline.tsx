@@ -74,7 +74,7 @@ export default function Timeline({ nowcast, frame, onFrame, designIntensity }: P
 
           {/* risk line */}
           <svg className="pointer-events-none absolute inset-0 h-full w-full overflow-visible" preserveAspectRatio="none" viewBox="0 0 100 100">
-            <polyline fill="none" stroke="var(--color-r2)" strokeWidth={2} vectorEffect="non-scaling-stroke"
+            <polyline fill="none" stroke="var(--r2)" strokeWidth={2} vectorEffect="non-scaling-stroke"
               points={risk.map((v, i) => `${xAt(i)},${100 - (v / rmax) * 100}`).join(" ")} />
           </svg>
           {risk.map((v, i) => (
