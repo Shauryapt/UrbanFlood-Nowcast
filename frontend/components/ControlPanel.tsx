@@ -1,5 +1,5 @@
 "use client";
-import { fmtLead, fmtT, RISK_COLORS } from "@/lib/api";
+import { ALERT_ACTION, fmtLead, fmtT, RISK_COLORS } from "@/lib/api";
 import type { ScenarioMetrics } from "@/lib/metrics";
 import type { Alert, Meta, OverlayKey, Params, Surface } from "@/lib/types";
 import { CLASSES } from "@/lib/types";
@@ -149,11 +149,12 @@ export default function ControlPanel(p: Props) {
             <li key={a.cell}>
               <button onClick={() => p.onSelectAlert(a.cell)}
                 className={`grid w-full grid-cols-[4px_1fr_auto] gap-x-2 border-t border-line px-3 py-1.5 text-left hover:bg-raise ${selected === a.cell ? "bg-raise" : ""}`}>
-                <i className="row-span-2 h-full" style={{ background: RISK_COLORS[CLASSES.indexOf(a.cls)] }} />
+                <i className="row-span-3 h-full" style={{ background: RISK_COLORS[CLASSES.indexOf(a.cls)] }} />
                 <span className="truncate text-[12px] text-ink">{a.place ? `Near ${a.place}` : `Zone ${a.node}`}</span>
                 <span className="num text-[11px] text-ink">{a.depth_cm} cm</span>
                 <span className="text-[11px] text-dim">{a.cls} · risk {a.score}</span>
                 <span className="num text-[11px] text-dim">{a.lead_min === 0 ? "High at NOW" : `lead ${fmtLead(a.lead_min)}`}</span>
+                <span className="label col-span-2 text-[10px]" style={{ color: RISK_COLORS[CLASSES.indexOf(a.cls)] }}>{ALERT_ACTION[a.cls]}</span>
               </button>
             </li>
           ))}

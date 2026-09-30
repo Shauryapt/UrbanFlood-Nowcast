@@ -1,5 +1,5 @@
 "use client";
-import { exactUtil, fmtLead, fmtT, fmtUtil, RESOLUTION_NOTE, RISK_COLORS, UTIL_CAP, UTIL_CAP_NOTE } from "@/lib/api";
+import { ALERT_ACTION, exactUtil, fmtLead, fmtT, fmtUtil, RESOLUTION_NOTE, RESPONSE_CATEGORIES, RISK_COLORS, UTIL_CAP, UTIL_CAP_NOTE } from "@/lib/api";
 import { frameSummary, rainContext } from "@/lib/metrics";
 import { atTime } from "@/lib/series";
 import type { CellDetail, Meta, Nowcast, RoadSegment, Series } from "@/lib/types";
@@ -288,6 +288,28 @@ export default function IntelPanel({ meta, nowcast, series, frame, detail, loadi
             </div>
           ))}
         </div>
+      )}
+
+      {isAlert && (
+        <section className="border-b border-line px-3 py-2.5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <h3 className="label text-ink/80">Operational response</h3>
+            <span className="label border px-1.5 py-[1px] text-[10px]" style={{ color: RISK_COLORS[ci], borderColor: RISK_COLORS[ci] }}>
+              {ALERT_ACTION[t.cls]}
+            </span>
+          </div>
+          <dl className="grid grid-cols-[76px_1fr] gap-y-0.5 text-[12px]">
+            {RESPONSE_CATEGORIES.map((r) => (
+              <div key={r.team} className="contents">
+                <dt className="text-dim">{r.team}</dt><dd className="text-ink">{r.action}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-1.5 text-[10px] leading-snug text-faint">
+            Recommended operational categories for this prototype, based only on the modelled risk class ({t.cls} at {fmtT(t.t_min)}).
+            Not dispatch instructions; no municipal, traffic or emergency system is connected.
+          </p>
+        </section>
       )}
 
       <div className="grid grid-cols-[1fr_auto] items-end border-b border-line px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${ci ? RISK_COLORS[ci] : "var(--line-strong)"}` }}>
