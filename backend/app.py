@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 import model
+import streets
 from config import city_index, get_city
 
 app = FastAPI(title="UrbanFlood Nowcast API", version="0.1")
@@ -142,6 +143,32 @@ def nowcast(city_id: str, source: str = Query("scenario", pattern="^(scenario|li
     out = model.summary(city_id, sc)
     out.update(info, generated=datetime.now(ZoneInfo(C.cfg["timezone"])).isoformat(timespec="seconds"))
     return out
+
+
+def _streets_or_404(C):
+    if not (C.proc / "roads.geojson").exists():
+        raise HTTPException(404, "roads not available for this study area")
+
+
+@app.get("/api/cities/{city_id}/streets")
+def street_flood(city_id: str, frame: int = Query(0, ge=0, le=len(model.HOURLY_FRAMES) - 1),
+                 source: str = Query("scenario", pattern="^(scenario|live)$"), preset: str = "heavy",
+                 multiplier: float = Query(1.0, ge=0.25, le=3.0), blockage: float = Query(0.0, ge=0.0, le=0.8),
+                 tide: str = "high"):
+    """DERIVED street flood status (GeoJSON) for one exposed frame: modelled grid values sampled onto OSM roads."""
+    C = city_or_404(city_id); _streets_or_404(C)
+    sc, _ = scenario_from(C, source, preset, multiplier, blockage, tide)
+    return streets.geojson(city_id, sc, frame)
+
+
+@app.get("/api/cities/{city_id}/streets/status")
+def street_flood_status(city_id: str, source: str = Query("scenario", pattern="^(scenario|live)$"), preset: str = "heavy",
+                        multiplier: float = Query(1.0, ge=0.25, le=3.0), blockage: float = Query(0.0, ge=0.0, le=0.8),
+                        tide: str = "high"):
+    """Compact per-segment status for all exposed frames (index = segment id in /streets)."""
+    C = city_or_404(city_id); _streets_or_404(C)
+    sc, _ = scenario_from(C, source, preset, multiplier, blockage, tide)
+    return streets.status(city_id, sc)
 
 
 @app.get("/api/cities/{city_id}/cell/{cell}")

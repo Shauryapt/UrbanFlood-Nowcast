@@ -22,6 +22,7 @@ const OVERLAYS: { key: OverlayKey; label: string }[] = [
   { key: "roads", label: "Roads" },
   { key: "waterways", label: "Waterways" },
   { key: "historical", label: "Historical flood spots" },
+  { key: "streets", label: "Street flood status" },
 ];
 
 interface Props {

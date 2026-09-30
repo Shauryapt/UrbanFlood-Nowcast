@@ -1,5 +1,6 @@
 "use client";
 import { DEPTH_STOPS, ELEV_STOPS, MAP_PALETTE, RAIN_STOPS } from "@/lib/mapStyle";
+import { STREET_STATUSES } from "@/lib/types";
 import type { OverlayKey, Surface, Theme } from "@/lib/types";
 
 function Ramp({ colors, labels, unit }: { colors: readonly string[]; labels: (string | number)[]; unit: string }) {
@@ -29,6 +30,16 @@ export default function MapLegend({ theme, surface, overlays, frameLabel }: {
     <Row key="s"><span className="flex gap-0.5">{[P.nodeOk, P.risk[1], P.risk[2], P.risk[3]].map((c) => <i key={c} className="h-2 w-2 rounded-full" style={{ background: c }} />)}</span>
       Modelled node load &lt;100 · 100 · 150 · 300%+</Row>);
   if (overlays.network) rows.push(<Row key="n"><i className="h-0 w-4 border-t border-dashed" style={{ borderColor: P.pipe }} />Drainage network (representative)</Row>);
+  if (overlays.streets) rows.push(
+    <div key="st" className="py-0.5">
+      <div className="text-dim">Street flood status · derived from 300 m model grid</div>
+      <div className="mt-0.5 grid grid-cols-2 gap-x-2 gap-y-0.5">
+        {STREET_STATUSES.map((st, i) => (
+          <span key={st} className="flex items-center gap-1 text-[10px] text-dim">
+            <i className="h-[3px] w-3" style={{ background: i ? P.risk[i] : P.nodeOk, opacity: i ? 1 : 0.5 }} />{st}
+          </span>))}
+      </div>
+    </div>);
   if (overlays.historical) rows.push(<Row key="h"><i className="h-2.5 w-2.5 rounded-full border" style={{ borderColor: P.spot }} />Historical flooding spot</Row>);
 
   if (surface === "none" && !rows.length) return null;   // (overlay rows are hidden on phones to keep the map visible)

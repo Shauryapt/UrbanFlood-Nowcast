@@ -1,8 +1,8 @@
 "use client";
 import { exactUtil, fmtLead, fmtT, fmtUtil, RISK_COLORS, UTIL_CAP, UTIL_CAP_NOTE } from "@/lib/api";
 import { frameSummary, rainContext } from "@/lib/metrics";
-import type { CellDetail, Meta, Nowcast } from "@/lib/types";
-import { CLASSES } from "@/lib/types";
+import type { CellDetail, Meta, Nowcast, RoadSegment, StreetStatus } from "@/lib/types";
+import { CLASSES, STREET_STATUSES } from "@/lib/types";
 import { DataTag } from "./Provenance";
 
 interface Props {
@@ -13,6 +13,9 @@ interface Props {
   loading: boolean;
   error: string | null;
   onClose: () => void;
+  road: RoadSegment | null;
+  streetStatus: StreetStatus | null;
+  onSelectCell: (cell: number) => void;
 }
 
 function Reading({ label, value, unit, note, tone, title }: { label: string; value: string | number; unit?: string; note?: string; tone?: string; title?: string }) {
@@ -141,7 +144,69 @@ function WhyAtRisk({ t }: { t: CellDetail["timeline"][number] }) {
   );
 }
 
-export default function IntelPanel({ meta, nowcast, frame, detail, loading, error, onClose }: Props) {
+const statusColor = (s: number) => (s ? RISK_COLORS[s] : "var(--ink)");
+const cap = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "—");
+
+/** Road segment detail: modelled grid values for the cell the segment lies in (derived, not observed). */
+function RoadDetail({ meta, road, status, frame, onClose, onSelectCell }: {
+  meta: Meta; road: RoadSegment; status: StreetStatus | null; frame: number; onClose: () => void; onSelectCell: (cell: number) => void;
+}) {
+  const f = status?.frames[frame];
+  const s = f ? f.status[road.id] : null;
+  return (
+    <div className="scroll-thin h-full lg:overflow-y-auto">
+      <div className="flex items-start justify-between border-b border-line px-3 py-2.5">
+        <div className="min-w-0">
+          <h2 className="label text-ink/80">Street flood status</h2>
+          <div className="truncate text-[13px] text-ink">{road.name ?? "Unnamed road"}</div>
+          <div className="num text-[11px] text-faint">{cap(road.highway)} road · segment {road.id} · {meta.grid.cell_m} m cell {road.cell}</div>
+        </div>
+        <button onClick={onClose} className="label px-1 hover:text-ink" aria-label="Close road detail">Close</button>
+      </div>
+      {!f || s == null ? <p className="px-3 py-3 text-[12px] text-dim">Loading street status…</p> : (
+        <>
+          <div className="grid grid-cols-[1fr_auto] items-end border-b border-line px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${s ? RISK_COLORS[s] : "var(--line-strong)"}` }}>
+            <div>
+              <div className="text-[11px] text-dim">Flood status at {fmtT(f.t_min)}</div>
+              <div className="font-cond text-[22px] font-semibold uppercase leading-none tracking-wide" style={{ color: statusColor(s) }}>{STREET_STATUSES[s]}</div>
+            </div>
+            <DataTag cls="SIMULATED" />
+          </div>
+          <div className="grid grid-cols-4 border-b border-line">
+            {status!.frames.map((x, i) => (
+              <div key={i} className={`border-r border-line px-1.5 py-1 last:border-r-0 ${i === frame ? "bg-raise" : ""}`}>
+                <div className="num text-[10px] text-dim">{fmtT(x.t_min)}</div>
+                <div className="h-1" style={{ background: x.status[road.id] ? RISK_COLORS[x.status[road.id]] : "var(--line)" }} />
+                <div className="num text-[11px] text-ink">{x.depth_cm[road.id]} cm</div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 px-3 pb-1 pt-1">
+            <Reading label="Road class (OSM)" value={cap(road.highway)} />
+            <Reading label="Estimated depth (modelled)" value={f.depth_cm[road.id]} unit="cm" note="Grid-cell estimate" />
+            <Reading label="Risk class" value={CLASSES[f.risk[road.id]]} tone={f.risk[road.id] ? RISK_COLORS[f.risk[road.id]] : undefined} />
+            <Reading label="Flood status" value={STREET_STATUSES[s]} tone={s ? RISK_COLORS[s] : undefined} />
+            <Reading label="Forecast time" value={fmtT(f.t_min)} />
+          </div>
+          <p className="border-t border-line px-3 py-2 text-[11px] leading-snug text-dim">
+            <span className="text-ink">Derived from 300 m model grid.</span> This segment takes the modelled depth and risk class of the grid
+            cell it lies in. Status bands use the model&apos;s depth thresholds ({status!.derived.depth_thresholds_m.map((d) => `${Math.round(d * 100)}`).join(" / ")} cm).
+            Risk class also reflects the risk score, so it can be higher than the depth-based status.
+            No street-level observations or road authority data are used.
+          </p>
+          <div className="border-t border-line px-3 py-2">
+            <button onClick={() => onSelectCell(road.cell)} className="label border border-line-strong px-2 py-0.5 text-ink hover:border-steel">
+              Open grid-cell detail
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function IntelPanel({ meta, nowcast, frame, detail, loading, error, onClose, road, streetStatus, onSelectCell }: Props) {
+  if (road) return <RoadDetail meta={meta} road={road} status={streetStatus} frame={frame} onClose={onClose} onSelectCell={onSelectCell} />;
   if (!detail) {
     return (
       <div className="h-full lg:overflow-y-auto scroll-thin">

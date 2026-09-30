@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MLMap, MapMouseEvent } from "maplibre-gl";
 import { api } from "@/lib/api";
-import type { Alert, Meta, Nowcast, OverlayKey, StaticGrid, Surface, Theme } from "@/lib/types";
+import type { Alert, Meta, Nowcast, OverlayKey, RoadSegment, StaticGrid, StreetStatus, Surface, Theme } from "@/lib/types";
 import { DEPTH_STOPS, ELEV_STOPS, MAP_PALETTE, RAIN_STOPS, UTIL_STEPS } from "@/lib/mapStyle";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs"); // served from public/ (see postinstall)
@@ -20,6 +20,7 @@ const OVERLAY_LAYERS: Record<OverlayKey, string[]> = {
   roads: ["roads-major", "roads-minor"],
   waterways: ["waterways-line"],
   historical: ["hist-circle"],
+  streets: ["streets-line", "streets-hit", "streets-selected"],
 };
 
 interface Props {
@@ -34,6 +35,9 @@ interface Props {
   selected: number | null;
   focus: { lon: number; lat: number; seq: number } | null;
   onSelect: (cell: number | null) => void;
+  streetStatus: StreetStatus | null;
+  selectedRoad: number | null;
+  onSelectRoad: (road: RoadSegment) => void;
 }
 
 function cellPolygon(meta: Meta, cell: number): GeoJSON.Polygon {
@@ -47,12 +51,14 @@ const ramp = (prop: string, stops: readonly number[], colors: readonly string[])
   ["interpolate", ["linear"], ["get", prop], ...stops.flatMap((s, i) => [s, colors[i]])] as never;
 
 export default function MapView(props: Props) {
-  const { meta, theme, nowcast, staticGrid, frame, surface, overlays, alerts, selected, focus, onSelect } = props;
+  const { meta, theme, nowcast, staticGrid, frame, surface, overlays, alerts, selected, focus, onSelect, streetStatus, selectedRoad } = props;
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<MLMap | null>(null);
   const ready = useRef(false);
   const camera = useRef<{ city: string; center: [number, number]; zoom: number } | null>(null);
   const geom = useRef<{ city: string; cells: Map<number, GeoJSON.Polygon> }>({ city: "", cells: new Map() });
+  const streetsLoaded = useRef(false);          // street geometry is fetched on first use of the overlay
+  const streetsApplied = useRef<unknown>(null);  // last (status, frame) written to feature-state
   const latest = useRef(props);
   latest.current = props;
 
@@ -75,12 +81,27 @@ export default function MapView(props: Props) {
     });
     (m.getSource("alerts") as GeoJSONSource).setData({ type: "FeatureCollection", features: p.alerts.map((a) => ({
       type: "Feature", geometry: { type: "Point", coordinates: [a.lon, a.lat] }, properties: { cell: a.cell, cls: a.cls } })) });
+    applyStreets();
+  };
+  /** Street status per road segment for the current frame, via feature-state (geometry is never re-sent). */
+  const applyStreets = () => {
+    const m = map.current; const p = latest.current;
+    if (!m || !ready.current || !p.overlays.streets) return;
+    if (!streetsLoaded.current) {
+      (m.getSource("streets") as GeoJSONSource).setData(api.streetsUrl(p.meta.id));
+      streetsLoaded.current = true;
+    }
+    const f = p.streetStatus?.frames[p.frame];
+    if (!f || streetsApplied.current === f) return;
+    streetsApplied.current = f;
+    for (let id = 0; id < f.status.length; id++) m.setFeatureState({ source: "streets", id }, { status: f.status[id] });
   };
   const applySelection = () => {
     const m = map.current; const p = latest.current;
     if (!m || !ready.current) return;
     (m.getSource("selected") as GeoJSONSource).setData(p.selected == null ? EMPTY : {
       type: "FeatureCollection", features: [{ type: "Feature", geometry: cellPolygon(p.meta, p.selected), properties: {} }] });
+    m.setFilter("streets-selected", ["==", ["get", "id"], p.selectedRoad ?? -1]);
   };
   const applyVisibility = () => {
     const m = map.current; const p = latest.current;
@@ -89,12 +110,14 @@ export default function MapView(props: Props) {
     for (const [k, ids] of Object.entries(OVERLAY_LAYERS)) {
       for (const id of ids) m.setLayoutProperty(id, "visibility", p.overlays[k as OverlayKey] ? "visible" : "none");
     }
+    applyStreets();
   };
 
   // (re)create the map per study area and theme; the camera is preserved across theme switches
   useEffect(() => {
     if (!box.current) return;
     ready.current = false;
+    streetsLoaded.current = false; streetsApplied.current = null;
     const P = MAP_PALETTE[theme];
     if (geom.current.city !== meta.id) geom.current = { city: meta.id, cells: new Map() };
     const cam = camera.current?.city === meta.id ? camera.current : { center: meta.map.center, zoom: meta.map.zoom };
@@ -120,6 +143,7 @@ export default function MapView(props: Props) {
       src("pipes", api.layerUrl(meta.id, "drainage_pipes"), "id");
       src("nodes", api.layerUrl(meta.id, "drainage_nodes"), "id");
       src("hist", api.layerUrl(meta.id, "historical_spots"));
+      src("streets", EMPTY, "id");
       src("alerts", EMPTY);
       src("selected", EMPTY);
 
@@ -142,6 +166,16 @@ export default function MapView(props: Props) {
       m.addLayer({ id: "pipes-line", type: "line", source: "pipes", paint: {
         "line-color": P.pipe, "line-width": ["interpolate", ["linear"], ["get", "d_m"], 0.6, 0.5, 3, 1.6], "line-opacity": 0.55,
         "line-dasharray": [3, 1.5] } });
+      // derived street flood status: CLEAR is kept faint so flooded segments stand out
+      const st = ["coalesce", ["feature-state", "status"], -1];
+      m.addLayer({ id: "streets-line", type: "line", source: "streets", layout: { "line-cap": "round" }, paint: {
+        "line-color": ["match", st, 1, P.risk[1], 2, P.risk[2], 3, P.risk[3], P.nodeOk] as never,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 10, ["match", st, 3, 2.6, 2, 2.2, 1, 1.6, 0.6] as never,
+          15, ["match", st, 3, 6, 2, 5, 1, 4, 1.4] as never],
+        "line-opacity": ["match", st, -1, 0, 0, 0.35, 0.95] as never } });
+      m.addLayer({ id: "streets-hit", type: "line", source: "streets", paint: { "line-width": 12, "line-opacity": 0 } });
+      m.addLayer({ id: "streets-selected", type: "line", source: "streets", filter: ["==", ["get", "id"], -1],
+        paint: { "line-color": P.select, "line-width": ["interpolate", ["linear"], ["zoom"], 10, 3, 15, 7], "line-opacity": 0.9 } });
       const util = ["coalesce", ["feature-state", "util"], 0];
       m.addLayer({ id: "nodes-circle", type: "circle", source: "nodes", paint: {
         "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 4.5],
@@ -156,11 +190,16 @@ export default function MapView(props: Props) {
       m.addLayer({ id: "selected-line", type: "line", source: "selected", paint: { "line-color": P.select, "line-width": 2 } });
 
       m.on("click", (e: MapMouseEvent) => {
-        const layers = ["grid-hit", ...(latest.current.overlays.alerts ? ["alerts-ring"] : [])];
+        const ov = latest.current.overlays;
+        const layers = ["grid-hit", ...(ov.streets ? ["streets-hit"] : []), ...(ov.alerts ? ["alerts-ring"] : [])];
         const hit = m.queryRenderedFeatures(e.point, { layers: layers.reverse() });
-        latest.current.onSelect(hit[0] ? Number(hit[0].properties?.cell) : null);
+        const h = hit[0];
+        if (h?.layer.id === "streets-hit") {
+          const q = h.properties ?? {};
+          latest.current.onSelectRoad({ id: Number(q.id), road_id: Number(q.road_id), name: q.name ?? null, highway: q.highway ?? null, cell: Number(q.cell) });
+        } else latest.current.onSelect(h ? Number(h.properties?.cell) : null);
       });
-      for (const l of ["alerts-ring", "risk-fill", "depth-fill"]) {
+      for (const l of ["alerts-ring", "risk-fill", "depth-fill", "streets-hit"]) {
         m.on("mouseenter", l, () => (m.getCanvas().style.cursor = "pointer"));
         m.on("mouseleave", l, () => (m.getCanvas().style.cursor = ""));
       }
@@ -171,7 +210,8 @@ export default function MapView(props: Props) {
   }, [meta, theme]);
 
   useEffect(applyData, [nowcast, staticGrid, frame, alerts]);
-  useEffect(applySelection, [selected]);
+  useEffect(applyStreets, [streetStatus, frame]);
+  useEffect(applySelection, [selected, selectedRoad]);
   useEffect(applyVisibility, [surface, overlays]);
   useEffect(() => {
     if (focus && map.current) map.current.flyTo({ center: [focus.lon, focus.lat], zoom: Math.max(map.current.getZoom(), 14), duration: 600 });

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { api, fmtT } from "@/lib/api";
 import { describeScenario, scenarioMetrics } from "@/lib/metrics";
-import type { CellDetail, CityEntry, Meta, Nowcast, OverlayKey, Params, StaticGrid, Surface, Theme } from "@/lib/types";
+import type { CellDetail, CityEntry, Meta, Nowcast, OverlayKey, Params, RoadSegment, StaticGrid, StreetStatus, Surface, Theme } from "@/lib/types";
 import ControlPanel from "./ControlPanel";
 import IntelPanel from "./IntelPanel";
 import Timeline from "./Timeline";
@@ -15,7 +15,7 @@ import type { Baseline } from "./ScenarioCompare";
 const MapView = dynamic(() => import("./MapView"), { ssr: false });
 
 const DEFAULT_PARAMS: Params = { source: "scenario", preset: "heavy", multiplier: 1, blockage: 0, tide: "high" };
-const DEFAULT_OVERLAYS: Record<OverlayKey, boolean> = { alerts: true, stress: true, network: false, roads: true, waterways: true, historical: true };
+const DEFAULT_OVERLAYS: Record<OverlayKey, boolean> = { alerts: true, stress: true, network: false, roads: true, waterways: true, historical: true, streets: false };
 const THEME_KEY = "ufn-theme";
 
 export default function Dashboard() {
@@ -38,6 +38,8 @@ export default function Dashboard() {
   const [showProv, setShowProv] = useState(false);
   const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [theme, setTheme] = useState<Theme | null>(null);   // null until the stored theme is read
+  const [streetStatus, setStreetStatus] = useState<StreetStatus | null>(null);
+  const [selectedRoad, setSelectedRoad] = useState<RoadSegment | null>(null);
 
   // theme: read what the pre-paint script applied; persist changes
   useEffect(() => { setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark"); }, []);
@@ -57,6 +59,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     setMeta(null); setNowcast(null); setStaticGrid(null); setSelected(null); setDetail(null); setBaseline(null);
+    setStreetStatus(null); setSelectedRoad(null);
     api.meta(cityId).then(setMeta).catch((e) => setError(`Study area failed to load: ${e.message}`));
     api.staticGrid(cityId).then(setStaticGrid).catch(() => setStaticGrid(null));   // elevation/imperviousness layers only
   }, [cityId]);
@@ -78,6 +81,22 @@ export default function Dashboard() {
     }, 220);
     return () => { stale = true; clearTimeout(t); };
   }, [meta, params]);
+
+  // derived street flood status: fetched only while the overlay (or a selected road) needs it
+  const needStreets = overlays.streets || selectedRoad != null;
+  useEffect(() => {
+    if (!meta || !needStreets) return;
+    let stale = false;
+    const t = setTimeout(() => {
+      api.streetStatus(meta.id, params)
+        .then((s) => { if (!stale) setStreetStatus(s); })
+        .catch((e) => { if (!stale) setError(`Street flood status failed: ${e.message}`); });
+    }, 220);
+    return () => { stale = true; clearTimeout(t); };
+  }, [meta, params, needStreets]);
+
+  const selectCell = useCallback((cell: number | null) => { setSelected(cell); setSelectedRoad(null); }, []);
+  const selectRoad = useCallback((r: RoadSegment) => { setSelectedRoad(r); setSelected(null); }, []);
 
   // selected cell detail follows scenario changes
   useEffect(() => {
@@ -102,8 +121,8 @@ export default function Dashboard() {
       const d = ((lon - p.lon) * kx) ** 2 + (lat - p.lat) ** 2;
       if (d < bd) { bd = d; best = cell; }
     }
-    if (best >= 0 && Math.sqrt(bd) * 111_000 < 1_000) setSelected(best);
-  }, [meta, nowcast]);
+    if (best >= 0 && Math.sqrt(bd) * 111_000 < 1_000) selectCell(best);
+  }, [meta, nowcast, selectCell]);
 
   const current = useMemo(() => (nowcast ? scenarioMetrics(nowcast) : null), [nowcast]);
   const currentLabel = meta ? describeScenario(params, meta.model.scenarios[params.preset]?.label) : "";
@@ -158,7 +177,7 @@ export default function Dashboard() {
             <ControlPanel meta={meta} params={params} setParams={setParams} liveError={liveError}
               surface={surface} setSurface={setSurface}
               overlays={overlays} toggleOverlay={(k) => setOverlays((o) => ({ ...o, [k]: !o[k] }))}
-              alerts={alerts} selected={selected} onSelectAlert={setSelected}
+              alerts={alerts} selected={selected} onSelectAlert={selectCell}
               baseline={baseline} current={current} currentLabel={currentLabel}
               onCapture={() => current && setBaseline({ label: currentLabel, metrics: current })}
               onClearBaseline={() => setBaseline(null)} />
@@ -169,7 +188,8 @@ export default function Dashboard() {
           <div className="relative min-h-0 flex-1">
             {meta && theme && <MapView meta={meta} theme={theme} nowcast={nowcast} staticGrid={staticGrid} frame={frame}
               surface={surface} overlays={overlays} alerts={alerts?.items ?? []}
-              selected={selected} focus={focus} onSelect={setSelected} />}
+              selected={selected} focus={focus} onSelect={selectCell}
+              streetStatus={streetStatus} selectedRoad={selectedRoad?.id ?? null} onSelectRoad={selectRoad} />}
             {meta && <div className="absolute left-2 top-2 z-10"><MapSearch city={meta.id} onPick={pickPlace} /></div>}
             <div className="pointer-events-none absolute bottom-2 left-2 flex max-w-[70%] flex-col items-start gap-1.5">
               {theme && <MapLegend theme={theme} surface={surface} overlays={overlays} frameLabel={fmtT((nowcast?.frames[frame]?.t_min) ?? 0)} />}
@@ -185,7 +205,8 @@ export default function Dashboard() {
 
         <aside className="order-3 min-h-0 border-line bg-panel lg:border-l">
           {meta && <IntelPanel meta={meta} nowcast={nowcast} frame={frame} detail={detail}
-            loading={detailState.loading} error={detailState.error} onClose={() => setSelected(null)} />}
+            loading={detailState.loading} error={detailState.error} onClose={() => selectCell(null)}
+            road={selectedRoad} streetStatus={streetStatus} onSelectCell={selectCell} />}
         </aside>
 
         {showProv && meta && <Provenance meta={meta} onClose={() => setShowProv(false)} />}

@@ -1,4 +1,4 @@
-import type { CellDetail, CityEntry, Meta, Nowcast, Params, StaticGrid } from "./types";
+import type { CellDetail, CityEntry, Meta, Nowcast, Params, StaticGrid, StreetStatus } from "./types";
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -21,6 +21,9 @@ export const api = {
   staticGrid: (city: string) => get<StaticGrid>(`/api/cities/${city}/static`),
   nowcast: (city: string, p: Params) => get<Nowcast>(`/api/cities/${city}/nowcast?${qs(p)}`),
   cell: (city: string, cell: number, p: Params) => get<CellDetail>(`/api/cities/${city}/cell/${cell}?${qs(p)}`),
+  /** Road-segment geometry for the derived street layer (loaded once; values are applied from streetStatus). */
+  streetsUrl: (city: string) => `/api/cities/${city}/streets`,
+  streetStatus: (city: string, p: Params) => get<StreetStatus>(`/api/cities/${city}/streets/status?${qs(p)}`),
 };
 
 /** Risk colours for DOM elements (theme-aware CSS variables). Map paint uses MapView's palette. */
