@@ -5,3 +5,23 @@ node_modules/
 .next/
 frontend/public/maplibre/
 .playwright-mcp/
+
+# local secrets / environment
+.env
+.env.*
+
+# Python test and bytecode caches
+.pytest_cache/
+*.pyc
+.coverage
+coverage/
+
+# logs
+*.log
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

@@ -11,7 +11,7 @@ Before starting, run both servers and open http://localhost:3000 once so the dev
 | 5 | Point to **Contributing factors**. | "The score is additive, so these bars are exact contributions and they sum to the score. Here: ponding depth, a surcharged drain and rainfall intensity." |
 | 6 | Drag **Rainfall multiplier** to ×0.5, then to ×1.5. | "Halve the rain and alerts at +2 h drop from about 390 zones to about 20. Push it up and they spread." |
 | 7 | Set **Tide** to Low, then back to High, and raise **Added drain blockage**. | "Tide throttles the sea outfalls, and blockage cuts conduit capacity. This is the drainage–rainfall coupling the problem statement asks for." |
-| 8 | Click **+1 HR → +2 HR → +3 HR**, or press **Play**. | "Risk peaks at +2 h and eases at +3 h as rain and tide fall. The alert list re-ranks at each step." |
+| 8 | Step through the 15-minute timeline (**NOW, +15, +30 … +180**), or press **Play**. | "The model runs in 15-minute steps. Risk peaks around +2 h (+120 min) and eases by +180 min as rain and tide fall. The map, street status and alert list update at each step." |
 | 9 | Switch to **Observed / Forecast**. | "Live mode pulls Open-Meteo hourly rainfall, the past 6 h and next 3 h, and the status changes to LIVE." |
 | 10 | Open **Data provenance**. | "Every layer is tagged Real, Representative or Simulated. Terrain, land cover, roads, CHIRPS rainfall and the historical spots are real public data. The drainage network is representative, not the municipal network, and depths are prototype estimates." |
 
