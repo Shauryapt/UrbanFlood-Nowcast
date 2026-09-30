@@ -2,6 +2,7 @@
 import { ALERT_ACTION, exactUtil, fmtLead, fmtT, fmtUtil, RESOLUTION_NOTE, RESPONSE_CATEGORIES, RISK_COLORS, UTIL_CAP, UTIL_CAP_NOTE } from "@/lib/api";
 import { frameSummary, rainContext } from "@/lib/metrics";
 import { atTime } from "@/lib/series";
+import { MODE_HELP, modeAdvisory, OP_MODES, type OpMode } from "@/lib/modes";
 import type { CellDetail, Meta, Nowcast, RoadSegment, Series } from "@/lib/types";
 import { CLASSES, STREET_STATUSES } from "@/lib/types";
 import { DataTag } from "./Provenance";
@@ -17,6 +18,7 @@ interface Props {
   onClose: () => void;
   road: RoadSegment | null;
   onSelectCell: (cell: number) => void;
+  opMode: OpMode;
 }
 
 function Reading({ label, value, unit, note, tone, title }: { label: string; value: string | number; unit?: string; note?: string; tone?: string; title?: string }) {
@@ -184,8 +186,9 @@ const statusColor = (s: number) => (s ? RISK_COLORS[s] : "var(--ink)");
 const cap = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "—");
 
 /** Road segment detail: modelled grid values for the cell the segment lies in (derived, not observed). */
-function RoadDetail({ meta, road, series, frame, onClose, onSelectCell }: {
+function RoadDetail({ meta, road, series, frame, onClose, onSelectCell, opMode }: {
   meta: Meta; road: RoadSegment; series: Series | null; frame: number; onClose: () => void; onSelectCell: (cell: number) => void;
+  opMode: OpMode;
 }) {
   // status = depth class of the grid cell the segment lies in (same definition as /streets flood_status)
   const k = series ? series.cells.indexOf(road.cell) : -1;
@@ -211,6 +214,7 @@ function RoadDetail({ meta, road, series, frame, onClose, onSelectCell }: {
             <DataTag cls="SIMULATED" />
           </div>
           <StepStrip activeT={f.t_min} steps={series!.frames.map((x) => ({ t_min: x.t_min, c: x.depth_cls?.[k] ?? 0, depth: x.depth_cm[k] }))} />
+          <ModeGuidance mode={opMode} status={s} highway={road.highway} />
           <div className="grid grid-cols-2 gap-x-4 px-3 pb-1 pt-1">
             <Reading label="Road class (OSM)" value={cap(road.highway)} />
             <Reading label="Estimated depth (modelled)" value={f.depth_cm[k]} unit="cm" note="Grid-cell estimate" />
@@ -235,13 +239,31 @@ function RoadDetail({ meta, road, series, frame, onClose, onSelectCell }: {
   );
 }
 
-export default function IntelPanel({ meta, nowcast, series, frame, detail, loading, error, onClose, road, onSelectCell }: Props) {
+const ADVISORY_COLOR = { "AVOID": RISK_COLORS[3], "CAUTION": RISK_COLORS[1], "NO FLOOD CONSTRAINT": "var(--ink)" } as const;
+
+/** Mode-specific prioritisation of this segment's modelled status (guidance only; no routing). */
+function ModeGuidance({ mode, status, highway }: { mode: OpMode; status: number; highway: string | null }) {
+  const a = modeAdvisory(mode, status, highway);
+  const label = OP_MODES.find((m) => m.key === mode)?.label;
+  return (
+    <div className="border-b border-line px-3 py-2" title={MODE_HELP}>
+      <div className="flex items-baseline justify-between">
+        <span className="label text-ink/80">{label} mode guidance</span>
+        <span className="label text-[12px]" style={{ color: ADVISORY_COLOR[a.level] }}>{a.level}</span>
+      </div>
+      <p className="mt-0.5 text-[11px] leading-snug text-dim">{a.reason}</p>
+      <p className="text-[10px] leading-snug text-faint">Prioritisation guidance from modelled status only; not a route or live road status.</p>
+    </div>
+  );
+}
+
+export default function IntelPanel({ meta, nowcast, series, frame, detail, loading, error, onClose, road, onSelectCell, opMode }: Props) {
   const bar = <ForecastBar series={series} frame={frame} />;
   if (road) {
     return (
       <div className="flex h-full flex-col">
         {bar}
-        <div className="min-h-0 flex-1"><RoadDetail meta={meta} road={road} series={series} frame={frame} onClose={onClose} onSelectCell={onSelectCell} /></div>
+        <div className="min-h-0 flex-1"><RoadDetail meta={meta} road={road} series={series} frame={frame} onClose={onClose} onSelectCell={onSelectCell} opMode={opMode} /></div>
       </div>
     );
   }

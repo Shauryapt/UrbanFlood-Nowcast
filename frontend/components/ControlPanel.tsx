@@ -1,6 +1,7 @@
 "use client";
 import { ALERT_ACTION, fmtLead, fmtT, RISK_COLORS } from "@/lib/api";
 import type { ScenarioMetrics } from "@/lib/metrics";
+import { MODE_HELP, MODE_LABEL, OP_MODES, type OpMode } from "@/lib/modes";
 import type { Alert, Meta, OverlayKey, Params, Surface } from "@/lib/types";
 import { CLASSES } from "@/lib/types";
 import ScenarioCompare, { type Baseline } from "./ScenarioCompare";
@@ -44,6 +45,8 @@ interface Props {
   onClearBaseline: () => void;
   autoRefresh: boolean;
   setAutoRefresh: (v: boolean) => void;
+  opMode: OpMode;
+  setOpMode: (m: OpMode) => void;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -114,6 +117,22 @@ export default function ControlPanel(p: Props) {
         <ScenarioCompare baseline={p.baseline} current={p.current} currentLabel={p.currentLabel}
           onCapture={p.onCapture} onClear={p.onClearBaseline} />
       </Section>
+
+      <section className="border-b border-line px-3 py-2.5">
+        <h2 className="label mb-2 flex items-center justify-between gap-2 text-ink/80">
+          <span>{MODE_LABEL}</span>
+          <span title={MODE_HELP} aria-label={MODE_HELP} tabIndex={0}
+            className="num inline-flex h-4 w-4 shrink-0 cursor-help items-center justify-center rounded-full border border-line-strong text-[10px] normal-case text-dim">?</span>
+        </h2>
+        <div className="grid grid-cols-3 border border-line-strong text-[12px]" role="radiogroup" aria-label="Operational mode">
+          {OP_MODES.map((m) => (
+            <button key={m.key} role="radio" aria-checked={p.opMode === m.key} onClick={() => p.setOpMode(m.key)} title={MODE_HELP}
+              className={`py-1 ${p.opMode === m.key ? "bg-raise text-ink" : "text-dim hover:text-ink"}`}>{m.label}</button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11px] leading-snug text-dim">{OP_MODES.find((m) => m.key === p.opMode)?.summary}</p>
+        <p className="mt-0.5 text-[10px] leading-snug text-faint">Guidance only — no live routing. Select a road on the Street flood status layer to see it.</p>
+      </section>
 
       <Section title="Map layers">
         <div className="grid grid-cols-[auto_1fr] gap-x-4">

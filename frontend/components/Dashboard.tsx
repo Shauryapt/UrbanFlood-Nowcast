@@ -5,6 +5,7 @@ import { api, fmtT } from "@/lib/api";
 import { describeScenario, scenarioMetrics } from "@/lib/metrics";
 import type { CellDetail, CityEntry, Meta, Nowcast, NowcastTimeline, OverlayKey, Params, RoadSegment, StaticGrid, Surface, Theme } from "@/lib/types";
 import { frameIndexAt, seriesFromNowcast, seriesFromTimeline } from "@/lib/series";
+import type { OpMode } from "@/lib/modes";
 import ControlPanel from "./ControlPanel";
 import IntelPanel from "./IntelPanel";
 import Timeline from "./Timeline";
@@ -43,6 +44,7 @@ export default function Dashboard() {
   const [theme, setTheme] = useState<Theme | null>(null);   // null until the stored theme is read
   const [selectedRoad, setSelectedRoad] = useState<RoadSegment | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);   // opt-in, live mode only
+  const [opMode, setOpMode] = useState<OpMode>("emergency"); // guidance prioritisation only (no routing)
   const [refreshTick, setRefreshTick] = useState(0);
 
   // theme: read what the pre-paint script applied; persist changes
@@ -188,7 +190,7 @@ export default function Dashboard() {
               overlays={overlays} toggleOverlay={(k) => setOverlays((o) => ({ ...o, [k]: !o[k] }))}
               alerts={alerts} selected={selected} onSelectAlert={selectCell}
               baseline={baseline} current={current} currentLabel={currentLabel}
-              autoRefresh={autoRefresh} setAutoRefresh={setAutoRefresh}
+              autoRefresh={autoRefresh} setAutoRefresh={setAutoRefresh} opMode={opMode} setOpMode={setOpMode}
               onCapture={() => current && setBaseline({ label: currentLabel, metrics: current })}
               onClearBaseline={() => setBaseline(null)} />
           )}
@@ -216,7 +218,7 @@ export default function Dashboard() {
         <aside className="order-3 min-h-0 border-line bg-panel lg:border-l">
           {meta && <IntelPanel meta={meta} nowcast={nowcast} series={series} frame={frame} detail={detail}
             loading={detailState.loading} error={detailState.error} onClose={() => selectCell(null)}
-            road={selectedRoad} onSelectCell={selectCell} />}
+            road={selectedRoad} onSelectCell={selectCell} opMode={opMode} />}
         </aside>
 
         {showProv && meta && <Provenance meta={meta} onClose={() => setShowProv(false)} />}
