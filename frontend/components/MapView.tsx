@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MLMap, MapMouseEvent } from "maplibre-gl";
 import { api } from "@/lib/api";
-import type { Alert, Meta, Nowcast, OverlayKey, RoadSegment, StaticGrid, StreetStatus, Surface, Theme } from "@/lib/types";
+import type { Alert, Meta, OverlayKey, RoadSegment, Series, StaticGrid, Surface, Theme } from "@/lib/types";
 import { DEPTH_STOPS, ELEV_STOPS, MAP_PALETTE, RAIN_STOPS, UTIL_STEPS } from "@/lib/mapStyle";
 
 maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs"); // served from public/ (see postinstall)
@@ -26,7 +26,7 @@ const OVERLAY_LAYERS: Record<OverlayKey, string[]> = {
 interface Props {
   meta: Meta;
   theme: Theme;
-  nowcast: Nowcast | null;
+  series: Series | null;          // forecast steps shown (15-min model frames, or hourly /nowcast frames)
   staticGrid: StaticGrid | null;
   frame: number;
   surface: Surface;
@@ -35,7 +35,6 @@ interface Props {
   selected: number | null;
   focus: { lon: number; lat: number; seq: number } | null;
   onSelect: (cell: number | null) => void;
-  streetStatus: StreetStatus | null;
   selectedRoad: number | null;
   onSelectRoad: (road: RoadSegment) => void;
 }
@@ -51,23 +50,27 @@ const ramp = (prop: string, stops: readonly number[], colors: readonly string[])
   ["interpolate", ["linear"], ["get", prop], ...stops.flatMap((s, i) => [s, colors[i]])] as never;
 
 export default function MapView(props: Props) {
-  const { meta, theme, nowcast, staticGrid, frame, surface, overlays, alerts, selected, focus, onSelect, streetStatus, selectedRoad } = props;
+  const { meta, theme, series, staticGrid, frame, surface, overlays, alerts, selected, focus, onSelect, selectedRoad } = props;
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<MLMap | null>(null);
   const ready = useRef(false);
   const camera = useRef<{ city: string; center: [number, number]; zoom: number } | null>(null);
   const geom = useRef<{ city: string; cells: Map<number, GeoJSON.Polygon> }>({ city: "", cells: new Map() });
-  const streetsLoaded = useRef(false);          // street geometry is fetched on first use of the overlay
-  const streetsApplied = useRef<unknown>(null);  // last (status, frame) written to feature-state
+  const streetsLoaded = useRef(false);          // street geometry is added to this map on first use of the overlay
+  const streetsApplied = useRef<unknown>(null);  // last frame written to feature-state
+  // street geometry (fetched once per study area, kept across theme switches) and the grid cell of each segment
+  const streetData = useRef<{ city: string; fc: GeoJSON.FeatureCollection; cells: number[] } | null>(null);
+  const cellIndex = useRef<{ cells: number[] | null; k: Map<number, number> }>({ cells: null, k: new Map() });
   const latest = useRef(props);
   latest.current = props;
 
   const applyData = () => {
     const m = map.current; const p = latest.current;
-    if (!m || !ready.current || !p.nowcast) return;
-    const f = p.nowcast.frames[p.frame];
-    const st = p.staticGrid && p.staticGrid.cells.length === p.nowcast.cells.length ? p.staticGrid : null;
-    const features: GeoJSON.Feature[] = p.nowcast.cells.map((cell, k) => {
+    if (!m || !ready.current || !p.series) return;
+    const f = p.series.frames[p.frame];
+    if (!f) return;
+    const st = p.staticGrid && p.staticGrid.cells.length === p.series.cells.length ? p.staticGrid : null;
+    const features: GeoJSON.Feature[] = p.series.cells.map((cell, k) => {
       let g = geom.current.cells.get(cell);
       if (!g) { g = cellPolygon(p.meta, cell); geom.current.cells.set(cell, g); }
       return { type: "Feature", geometry: g, properties: {
@@ -83,18 +86,36 @@ export default function MapView(props: Props) {
       type: "Feature", geometry: { type: "Point", coordinates: [a.lon, a.lat] }, properties: { cell: a.cell, cls: a.cls } })) });
     applyStreets();
   };
-  /** Street status per road segment for the current frame, via feature-state (geometry is never re-sent). */
+  /** Street status per road segment for the current frame, via feature-state (geometry is never re-sent):
+   *  the depth class of the grid cell the segment lies in, i.e. the /streets flood_status definition. */
   const applyStreets = () => {
     const m = map.current; const p = latest.current;
     if (!m || !ready.current || !p.overlays.streets) return;
+    const city = p.meta.id;
     if (!streetsLoaded.current) {
-      (m.getSource("streets") as GeoJSONSource).setData(api.streetsUrl(p.meta.id));
       streetsLoaded.current = true;
+      const got = streetData.current?.city === city ? Promise.resolve(streetData.current)
+        : fetch(api.streetsUrl(city)).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+          .then((fc: GeoJSON.FeatureCollection) => (streetData.current = { city, fc, cells: fc.features.map((x) => Number(x.properties?.cell)) }));
+      got.then((d) => {
+        if (map.current !== m) return;                 // map was recreated meanwhile
+        (m.getSource("streets") as GeoJSONSource).setData(d.fc);
+        streetsApplied.current = null; applyStreets();
+      }).catch(() => { streetsLoaded.current = false; });
+      return;
     }
-    const f = p.streetStatus?.frames[p.frame];
-    if (!f || streetsApplied.current === f) return;
+    const d = streetData.current;
+    const f = p.series?.frames[p.frame];
+    if (!d || d.city !== city || !p.series || !f || streetsApplied.current === f) return;
     streetsApplied.current = f;
-    for (let id = 0; id < f.status.length; id++) m.setFeatureState({ source: "streets", id }, { status: f.status[id] });
+    if (cellIndex.current.cells !== p.series.cells) {
+      cellIndex.current = { cells: p.series.cells, k: new Map(p.series.cells.map((c, k) => [c, k])) };
+    }
+    const kOf = cellIndex.current.k, dc = f.depth_cls;   // absent on the hourly fallback -> hidden
+    d.cells.forEach((cell, id) => {
+      const k = kOf.get(cell);
+      m.setFeatureState({ source: "streets", id }, { status: dc && k !== undefined ? dc[k] : -1 });
+    });
   };
   const applySelection = () => {
     const m = map.current; const p = latest.current;
@@ -209,8 +230,7 @@ export default function MapView(props: Props) {
     return () => { m.remove(); map.current = null; };
   }, [meta, theme]);
 
-  useEffect(applyData, [nowcast, staticGrid, frame, alerts]);
-  useEffect(applyStreets, [streetStatus, frame]);
+  useEffect(applyData, [series, staticGrid, frame, alerts]);
   useEffect(applySelection, [selected, selectedRoad]);
   useEffect(applyVisibility, [surface, overlays]);
   useEffect(() => {

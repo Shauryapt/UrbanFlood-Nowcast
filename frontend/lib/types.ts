@@ -95,14 +95,36 @@ export type Theme = "dark" | "light";
 /** Static per-cell inputs already used by the model (same cell order as Nowcast.cells). */
 export interface StaticGrid { cells: number[]; elev_m: number[]; imperv: number[] }
 
-/** Street flood status, DERIVED from the 300 m model grid (index = road segment id in the streets layer). */
+/** Street flood status, DERIVED from the 300 m model grid: the depth class of the cell a road segment lies in. */
 export const STREET_STATUSES = ["CLEAR", "CAUTION", "HIGH RISK", "ROAD CLOSURE RISK"] as const;
 export type StreetStatusName = (typeof STREET_STATUSES)[number];
-export interface StreetStatus {
-  city: string;
-  classes: RiskClass[];
-  frames: { t_min: number; depth_cm: number[]; risk: number[]; status: number[] }[];
-  derived: { note: string; cell_m: number; statuses: StreetStatusName[]; depth_thresholds_m: number[]; segments: number };
-}
 /** A clicked road segment (static properties from the streets layer). */
 export interface RoadSegment { id: number; road_id: number; name: string | null; highway: string | null; cell: number }
+
+export interface AlertSet { t_min: number; total: number; items: Alert[] }
+
+/** /nowcast/timeline: the model's native 15-min frames (T+0..T+3 h) from the same run as /nowcast. */
+export interface TimelineFrame {
+  t_min: number; cls: number[]; depth_cm: number[]; depth_cls: number[]; node_util: number[]; tide: number;
+  counts: number[]; high_severe: number; rain_mmph: number;
+}
+export interface NowcastTimeline {
+  city: string;
+  cells: number[];
+  rain_pattern: number[];
+  frames: TimelineFrame[];
+  lead_min: number[];
+  alerts: AlertSet[];
+  resolution: { model_dt_min: number; frames: number; rain_input: string; live_cache_s: number; note: string };
+  source: "scenario" | "live";
+  status: "LIVE" | "DEMO";
+  generated: string;
+}
+
+/** One forecast step as shown by the map, summary and timeline: a 15-min model frame, or an hourly
+ *  /nowcast frame when the timeline is unavailable (then depth_cls, and so street status, is absent). */
+export interface SeriesFrame {
+  t_min: number; cls: number[]; depth_cm: number[]; rain: number[]; node_util: number[]; tide: number; counts: number[];
+  depth_cls?: number[];
+}
+export interface Series { stepMin: number; cells: number[]; frames: SeriesFrame[]; alerts: AlertSet[]; lead_min: number[] }

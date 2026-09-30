@@ -1,20 +1,21 @@
 "use client";
-import { exactUtil, fmtLead, fmtT, fmtUtil, RISK_COLORS, UTIL_CAP, UTIL_CAP_NOTE } from "@/lib/api";
+import { exactUtil, fmtLead, fmtT, fmtUtil, RESOLUTION_NOTE, RISK_COLORS, UTIL_CAP, UTIL_CAP_NOTE } from "@/lib/api";
 import { frameSummary, rainContext } from "@/lib/metrics";
-import type { CellDetail, Meta, Nowcast, RoadSegment, StreetStatus } from "@/lib/types";
+import { atTime } from "@/lib/series";
+import type { CellDetail, Meta, Nowcast, RoadSegment, Series } from "@/lib/types";
 import { CLASSES, STREET_STATUSES } from "@/lib/types";
 import { DataTag } from "./Provenance";
 
 interface Props {
   meta: Meta;
   nowcast: Nowcast | null;
-  frame: number;
+  series: Series | null;
+  frame: number;              // index into series.frames
   detail: CellDetail | null;
   loading: boolean;
   error: string | null;
   onClose: () => void;
   road: RoadSegment | null;
-  streetStatus: StreetStatus | null;
   onSelectCell: (cell: number) => void;
 }
 
@@ -24,6 +25,40 @@ function Reading({ label, value, unit, note, tone, title }: { label: string; val
       <div className="text-[11px] text-dim">{label}</div>
       <div className="num text-[15px] leading-tight" style={{ color: tone ?? "var(--ink)" }}>{value}<span className="ml-0.5 text-[11px] text-dim">{unit}</span></div>
       {note && <div className="text-[10px] text-faint">{note}</div>}
+    </div>
+  );
+}
+
+/** Selected forecast time, shown at the top of every panel view. */
+function ForecastBar({ series, frame }: { series: Series | null; frame: number }) {
+  const t = series?.frames[frame]?.t_min ?? 0;
+  const fine = (series?.stepMin ?? 60) < 60;
+  return (
+    <div className="flex items-baseline justify-between border-b border-line bg-raise/40 px-3 py-1.5" title={RESOLUTION_NOTE}>
+      <span className="flex items-baseline gap-2">
+        <span className="label text-ink/80">Forecast time</span>
+        <span className="num text-[13px] text-ink">{t === 0 ? "NOW" : `T+${t} min`}</span>
+      </span>
+      <span className="text-[10px] text-faint">{fine ? "15-min model step" : "hourly step"}</span>
+    </div>
+  );
+}
+
+/** Compact per-step strip (4 hourly or 13 15-min steps): colour = class, number = depth in cm. */
+function StepStrip({ steps, activeT }: { steps: { t_min: number; c: number; depth: number }[]; activeT: number }) {
+  const fine = steps.length > 4;
+  return (
+    <div className="border-b border-line px-1 pb-1 pt-1">
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+        {steps.map((s) => (
+          <div key={s.t_min} className={`px-[1px] py-0.5 text-center ${s.t_min === activeT ? "bg-raise outline outline-1 outline-line-strong" : ""}`}>
+            <div className="num h-3 text-[9px] leading-3 text-dim">{!fine || s.t_min % 60 === 0 ? fmtT(s.t_min).replace(" HR", "h") : ""}</div>
+            <div className="h-1" style={{ background: s.c ? RISK_COLORS[s.c] : "var(--line)" }} />
+            <div className={`num text-[10px] ${s.t_min === activeT ? "text-ink" : "text-dim"}`}>{s.depth}</div>
+          </div>
+        ))}
+      </div>
+      <div className="px-1 text-right text-[9px] text-faint">depth, cm{fine ? " · every 15 min" : ""}</div>
     </div>
   );
 }
@@ -49,15 +84,16 @@ function RainfallContext({ nowcast }: { nowcast: Nowcast }) {
       <p className="mt-1.5 text-[10px] leading-snug text-faint">
         {live ? `Open-Meteo hourly precipitation at the city centre${fetched ? `, fetched ${fetched}` : ""}. Weather-model output, not radar or gauge.` : "Scenario hyetograph (city mean)."}
         {" "}Values include the rainfall multiplier. Temperature, humidity, wind and cloud cover are not in the current data feed.
+        {" "}Rainfall input is hourly; each 15-min model step uses its hour&apos;s intensity. {RESOLUTION_NOTE}
       </p>
     </section>
   );
 }
 
-function Overview({ meta, nowcast, frame }: { meta: Meta; nowcast: Nowcast | null; frame: number }) {
-  if (!nowcast) return <div className="px-3 py-3 text-[12px] text-dim">Loading nowcast…</div>;
-  const f = nowcast.frames[frame];
-  const s = frameSummary(nowcast, frame);
+function Overview({ meta, nowcast, series, frame }: { meta: Meta; nowcast: Nowcast | null; series: Series | null; frame: number }) {
+  if (!nowcast || !series) return <div className="px-3 py-3 text-[12px] text-dim">Loading nowcast…</div>;
+  const f = series.frames[frame];
+  const s = frameSummary(series, frame);
   const total = f.counts.reduce((a, b) => a + b, 0);
   return (
     <div>
@@ -68,7 +104,7 @@ function Overview({ meta, nowcast, frame }: { meta: Meta; nowcast: Nowcast | nul
           <Reading label="Surcharged drain nodes" value={s.surcharged} unit={`/ ${s.nodes}`} note="Representative network" />
           <Reading label="Max predicted depth" value={s.maxDepthCm} unit="cm" note="Prototype estimate" />
           <Reading label="Earliest alert lead" value={fmtLead(s.earliestLead)} note={s.earliestLead < 0 ? "No High within 3 h" : "First cell reaching High"} />
-          <Reading label="Peak forecast hour" value={fmtT(nowcast.frames[s.peakFrame].t_min)} note={`${s.peakCells} cells High/Severe`} />
+          <Reading label="Peak forecast time" value={fmtT(series.frames[s.peakFrame].t_min)} note={`${s.peakCells} cells High/Severe`} />
           <Reading label="Current rainfall" value={s.rainMean.toFixed(1)} unit="mm/h" note="Area mean at this step" />
           <Reading label="Peak drainage stress (modelled)" value={fmtUtil(s.peakUtil)} unit="%" title={UTIL_CAP_NOTE}
             note={s.peakUtil > UTIL_CAP ? `P95 of nodes; exact ${exactUtil(s.peakUtil)}*` : "95th percentile of representative nodes"} />
@@ -148,11 +184,13 @@ const statusColor = (s: number) => (s ? RISK_COLORS[s] : "var(--ink)");
 const cap = (s: string | null) => (s ? s[0].toUpperCase() + s.slice(1) : "—");
 
 /** Road segment detail: modelled grid values for the cell the segment lies in (derived, not observed). */
-function RoadDetail({ meta, road, status, frame, onClose, onSelectCell }: {
-  meta: Meta; road: RoadSegment; status: StreetStatus | null; frame: number; onClose: () => void; onSelectCell: (cell: number) => void;
+function RoadDetail({ meta, road, series, frame, onClose, onSelectCell }: {
+  meta: Meta; road: RoadSegment; series: Series | null; frame: number; onClose: () => void; onSelectCell: (cell: number) => void;
 }) {
-  const f = status?.frames[frame];
-  const s = f ? f.status[road.id] : null;
+  // status = depth class of the grid cell the segment lies in (same definition as /streets flood_status)
+  const k = series ? series.cells.indexOf(road.cell) : -1;
+  const f = series?.frames[frame];
+  const s = f?.depth_cls && k >= 0 ? f.depth_cls[k] : null;
   return (
     <div className="scroll-thin h-full lg:overflow-y-auto">
       <div className="flex items-start justify-between border-b border-line px-3 py-2.5">
@@ -163,7 +201,7 @@ function RoadDetail({ meta, road, status, frame, onClose, onSelectCell }: {
         </div>
         <button onClick={onClose} className="label px-1 hover:text-ink" aria-label="Close road detail">Close</button>
       </div>
-      {!f || s == null ? <p className="px-3 py-3 text-[12px] text-dim">Loading street status…</p> : (
+      {!f || s == null ? <p className="px-3 py-3 text-[12px] text-dim">Loading street status (needs the 15-min model forecast)…</p> : (
         <>
           <div className="grid grid-cols-[1fr_auto] items-end border-b border-line px-3 py-2.5" style={{ boxShadow: `inset 3px 0 0 ${s ? RISK_COLORS[s] : "var(--line-strong)"}` }}>
             <div>
@@ -172,25 +210,17 @@ function RoadDetail({ meta, road, status, frame, onClose, onSelectCell }: {
             </div>
             <DataTag cls="SIMULATED" />
           </div>
-          <div className="grid grid-cols-4 border-b border-line">
-            {status!.frames.map((x, i) => (
-              <div key={i} className={`border-r border-line px-1.5 py-1 last:border-r-0 ${i === frame ? "bg-raise" : ""}`}>
-                <div className="num text-[10px] text-dim">{fmtT(x.t_min)}</div>
-                <div className="h-1" style={{ background: x.status[road.id] ? RISK_COLORS[x.status[road.id]] : "var(--line)" }} />
-                <div className="num text-[11px] text-ink">{x.depth_cm[road.id]} cm</div>
-              </div>
-            ))}
-          </div>
+          <StepStrip activeT={f.t_min} steps={series!.frames.map((x) => ({ t_min: x.t_min, c: x.depth_cls?.[k] ?? 0, depth: x.depth_cm[k] }))} />
           <div className="grid grid-cols-2 gap-x-4 px-3 pb-1 pt-1">
             <Reading label="Road class (OSM)" value={cap(road.highway)} />
-            <Reading label="Estimated depth (modelled)" value={f.depth_cm[road.id]} unit="cm" note="Grid-cell estimate" />
-            <Reading label="Risk class" value={CLASSES[f.risk[road.id]]} tone={f.risk[road.id] ? RISK_COLORS[f.risk[road.id]] : undefined} />
+            <Reading label="Estimated depth (modelled)" value={f.depth_cm[k]} unit="cm" note="Grid-cell estimate" />
+            <Reading label="Risk class" value={CLASSES[f.cls[k]]} tone={f.cls[k] ? RISK_COLORS[f.cls[k]] : undefined} />
             <Reading label="Flood status" value={STREET_STATUSES[s]} tone={s ? RISK_COLORS[s] : undefined} />
             <Reading label="Forecast time" value={fmtT(f.t_min)} />
           </div>
           <p className="border-t border-line px-3 py-2 text-[11px] leading-snug text-dim">
             <span className="text-ink">Derived from 300 m model grid.</span> This segment takes the modelled depth and risk class of the grid
-            cell it lies in. Status bands use the model&apos;s depth thresholds ({status!.derived.depth_thresholds_m.map((d) => `${Math.round(d * 100)}`).join(" / ")} cm).
+            cell it lies in. Status bands use the model&apos;s depth thresholds ({meta.model.depth_thresholds_m.map((d) => `${Math.round(d * 100)}`).join(" / ")} cm).
             Risk class also reflects the risk score, so it can be higher than the depth-based status.
             No street-level observations or road authority data are used.
           </p>
@@ -205,18 +235,28 @@ function RoadDetail({ meta, road, status, frame, onClose, onSelectCell }: {
   );
 }
 
-export default function IntelPanel({ meta, nowcast, frame, detail, loading, error, onClose, road, streetStatus, onSelectCell }: Props) {
-  if (road) return <RoadDetail meta={meta} road={road} status={streetStatus} frame={frame} onClose={onClose} onSelectCell={onSelectCell} />;
-  if (!detail) {
+export default function IntelPanel({ meta, nowcast, series, frame, detail, loading, error, onClose, road, onSelectCell }: Props) {
+  const bar = <ForecastBar series={series} frame={frame} />;
+  if (road) {
     return (
-      <div className="h-full lg:overflow-y-auto scroll-thin">
-        {loading && <p className="border-b border-line px-3 py-1.5 text-[12px] text-dim">Loading location…</p>}
-        {error && <p className="border-b border-line px-3 py-1.5 text-[12px] text-r1">{error}</p>}
-        <Overview meta={meta} nowcast={nowcast} frame={frame} />
+      <div className="flex h-full flex-col">
+        {bar}
+        <div className="min-h-0 flex-1"><RoadDetail meta={meta} road={road} series={series} frame={frame} onClose={onClose} onSelectCell={onSelectCell} /></div>
       </div>
     );
   }
-  const t = detail.timeline[frame];
+  if (!detail) {
+    return (
+      <div className="h-full lg:overflow-y-auto scroll-thin">
+        {bar}
+        {loading && <p className="border-b border-line px-3 py-1.5 text-[12px] text-dim">Loading location…</p>}
+        {error && <p className="border-b border-line px-3 py-1.5 text-[12px] text-r1">{error}</p>}
+        <Overview meta={meta} nowcast={nowcast} series={series} frame={frame} />
+      </div>
+    );
+  }
+  const tMin = series?.frames[frame]?.t_min ?? 0;
+  const t = atTime(detail.timeline, tMin);
   const ci = CLASSES.indexOf(t.cls);
   const peak = detail.timeline.reduce((p, s) => (s.score > p.score ? s : p), detail.timeline[0]);
   const peakCi = CLASSES.indexOf(peak.cls);
@@ -224,6 +264,7 @@ export default function IntelPanel({ meta, nowcast, frame, detail, loading, erro
 
   return (
     <div className={`scroll-thin h-full lg:overflow-y-auto ${loading ? "opacity-60" : ""}`}>
+      {bar}
       <div className="flex items-start justify-between border-b border-line px-3 py-2.5">
         <div className="min-w-0">
           <h2 className="label text-ink/80">{isAlert ? "Alert detail" : "Selected location"}</h2>
@@ -237,7 +278,7 @@ export default function IntelPanel({ meta, nowcast, frame, detail, loading, erro
         <div className="grid grid-cols-4 border-b border-line text-[11px]" style={{ boxShadow: `inset 3px 0 0 ${RISK_COLORS[ci]}` }}>
           {[
             ["Severity", t.cls, RISK_COLORS[ci]],
-            ["Peak hour", fmtT(peak.t_min), undefined],
+            ["Peak time", fmtT(peak.t_min), undefined],
             ["Lead time", fmtLead(detail.lead_min), undefined],
             ["Peak depth", `${peak.depth_cm} cm`, undefined],
           ].map(([k, v, c]) => (
@@ -257,18 +298,7 @@ export default function IntelPanel({ meta, nowcast, frame, detail, loading, erro
         <div className="num text-right text-[22px] leading-none text-ink">{Math.round(t.score)}<span className="text-[11px] text-dim"> /100</span></div>
       </div>
 
-      <div className="grid grid-cols-4 border-b border-line">
-        {detail.timeline.map((s, i) => {
-          const c = CLASSES.indexOf(s.cls);
-          return (
-            <div key={i} className={`border-r border-line px-1.5 py-1 last:border-r-0 ${i === frame ? "bg-raise" : ""}`}>
-              <div className="num text-[10px] text-dim">{fmtT(s.t_min)}</div>
-              <div className="h-1" style={{ background: c ? RISK_COLORS[c] : "var(--line)" }} />
-              <div className="num text-[11px] text-ink">{s.depth_cm} cm</div>
-            </div>
-          );
-        })}
-      </div>
+      <StepStrip activeT={t.t_min} steps={detail.timeline.map((s) => ({ t_min: s.t_min, c: CLASSES.indexOf(s.cls), depth: s.depth_cm }))} />
 
       <div className="grid grid-cols-2 gap-x-4 px-3 pb-1 pt-1">
         <Reading label="Predicted depth" value={t.depth_cm} unit="cm" note="Prototype estimate" />

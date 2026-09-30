@@ -1,11 +1,11 @@
-import type { Nowcast, Params } from "./types";
+import type { Nowcast, Params, Series } from "./types";
 
 const maxOf = (a: number[]) => a.reduce((m, v) => (v > m ? v : m), -Infinity);
 /** 95th percentile: a robust "peak" for node utilisation, where single-node maxima are backwater outliers. */
 export const p95 = (a: number[]) => { const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(0.95 * s.length))] ?? 0; };
 
-/** Operational summary for one nowcast step, derived only from API outputs. */
-export function frameSummary(n: Nowcast, frame: number) {
+/** Operational summary for one forecast step (15-min or hourly series), derived only from API outputs. */
+export function frameSummary(n: Pick<Series, "frames" | "alerts" | "lead_min">, frame: number) {
   const f = n.frames[frame];
   const highSevere = f.counts[2] + f.counts[3];
   const perFrame = n.frames.map((x) => x.counts[2] + x.counts[3]);
@@ -26,7 +26,7 @@ export function frameSummary(n: Nowcast, frame: number) {
 }
 
 /** First time any cell reaches High within the 3 h horizon (minutes), or -1. */
-export function earliestLead(n: Nowcast) {
+export function earliestLead(n: { lead_min: number[] }) {
   let best = -1;
   for (const l of n.lead_min) if (l >= 0 && (best < 0 || l < best)) best = l;
   return best;

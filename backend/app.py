@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 
 import model
 import streets
+import timeline
 from config import city_index, get_city
 
 app = FastAPI(title="UrbanFlood Nowcast API", version="0.1")
@@ -143,6 +144,31 @@ def nowcast(city_id: str, source: str = Query("scenario", pattern="^(scenario|li
     out = model.summary(city_id, sc)
     out.update(info, generated=datetime.now(ZoneInfo(C.cfg["timezone"])).isoformat(timespec="seconds"))
     return out
+
+
+@app.get("/api/cities/{city_id}/nowcast/timeline")
+def nowcast_timeline(city_id: str, source: str = Query("scenario", pattern="^(scenario|live)$"), preset: str = "heavy",
+                     multiplier: float = Query(1.0, ge=0.25, le=3.0), blockage: float = Query(0.0, ge=0.0, le=0.8),
+                     tide: str = "high"):
+    """15-min model forecast: all native model frames (T+0..T+3 h) from the same cached run as /nowcast."""
+    C = city_or_404(city_id)
+    sc, info = scenario_from(C, source, preset, multiplier, blockage, tide)
+    out = timeline.timeline(city_id, sc)
+    out.update(info, generated=datetime.now(ZoneInfo(C.cfg["timezone"])).isoformat(timespec="seconds"))
+    return out
+
+
+@app.get("/api/cities/{city_id}/cell/{cell}/timeline")
+def cell_timeline(city_id: str, cell: int, source: str = Query("scenario", pattern="^(scenario|live)$"),
+                  preset: str = "heavy", multiplier: float = Query(1.0, ge=0.25, le=3.0),
+                  blockage: float = Query(0.0, ge=0.0, le=0.8), tide: str = "high"):
+    """Selected-cell explanation at every 15-min model frame (same fields as /cell, 13 timeline entries)."""
+    C = city_or_404(city_id)
+    sc, _ = scenario_from(C, source, preset, multiplier, blockage, tide)
+    try:
+        return timeline.cell_timeline(city_id, sc, cell)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
 
 
 def _streets_or_404(C):

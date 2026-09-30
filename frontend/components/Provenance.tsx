@@ -1,5 +1,6 @@
 "use client";
 import { useEffect } from "react";
+import { RESOLUTION_NOTE } from "@/lib/api";
 import type { DataClass, Meta } from "@/lib/types";
 
 const TAG: Record<DataClass, { color: string; text: string }> = {
@@ -65,7 +66,7 @@ export default function Provenance({ meta, onClose }: { meta: Meta; onClose: () 
         <div className="px-4 py-3 text-[11px] leading-relaxed text-faint">
           Risk score = sum of weighted factors ({meta.model.factors.map((f) => `${f.label.toLowerCase()} ${Math.round(f.weight * 100)}`).join(", ")}).
           The class is the higher of the score class (thresholds {meta.model.score_thresholds.join(" / ")}) and the depth class
-          ({meta.model.depth_thresholds_m.map((d) => `${d * 100} cm`).join(" / ")}). Weights and thresholds are set by expert judgement and are not trained. Full references are in REFERENCES.md.
+          ({meta.model.depth_thresholds_m.map((d) => `${d * 100} cm`).join(" / ")}). Weights and thresholds are set by expert judgement and are not trained. Full references are in REFERENCES.md. {RESOLUTION_NOTE}
         </div>
       </aside>
     </div>

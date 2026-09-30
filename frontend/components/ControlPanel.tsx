@@ -42,6 +42,8 @@ interface Props {
   currentLabel: string;
   onCapture: () => void;
   onClearBaseline: () => void;
+  autoRefresh: boolean;
+  setAutoRefresh: (v: boolean) => void;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -85,7 +87,14 @@ export default function ControlPanel(p: Props) {
             {Object.entries(scen).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         ) : (
-          <p className="mb-2.5 text-[11px] leading-snug text-dim">Hourly rainfall from Open-Meteo at the city centre: last 6 h and next 3 h (weather-model data), spread across the city by the CHIRPS July rainfall pattern.</p>
+          <>
+            <p className="mb-1.5 text-[11px] leading-snug text-dim">Hourly rainfall from Open-Meteo at the city centre: last 6 h and next 3 h (weather-model data), spread across the city by the CHIRPS July rainfall pattern.</p>
+            <label className="mb-2.5 flex cursor-pointer items-center gap-1.5 text-[12px]">
+              <input type="checkbox" checked={p.autoRefresh} onChange={(e) => p.setAutoRefresh(e.target.checked)} />
+              <span className={p.autoRefresh ? "text-ink" : "text-dim"}>Auto-refresh</span>
+              <span className="text-[11px] text-faint">· Live update cycle: 10 min</span>
+            </label>
+          </>
         )}
         <Slider label="Rainfall multiplier" value={params.multiplier} display={`× ${params.multiplier.toFixed(2)}`}
           min={0.25} max={3} step={0.25} onChange={(v) => setParams({ multiplier: v })} />

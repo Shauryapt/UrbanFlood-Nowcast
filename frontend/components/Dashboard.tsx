@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import { api, fmtT } from "@/lib/api";
 import { describeScenario, scenarioMetrics } from "@/lib/metrics";
-import type { CellDetail, CityEntry, Meta, Nowcast, OverlayKey, Params, RoadSegment, StaticGrid, StreetStatus, Surface, Theme } from "@/lib/types";
+import type { CellDetail, CityEntry, Meta, Nowcast, NowcastTimeline, OverlayKey, Params, RoadSegment, StaticGrid, Surface, Theme } from "@/lib/types";
+import { frameIndexAt, seriesFromNowcast, seriesFromTimeline } from "@/lib/series";
 import ControlPanel from "./ControlPanel";
 import IntelPanel from "./IntelPanel";
 import Timeline from "./Timeline";
@@ -17,6 +18,7 @@ const MapView = dynamic(() => import("./MapView"), { ssr: false });
 const DEFAULT_PARAMS: Params = { source: "scenario", preset: "heavy", multiplier: 1, blockage: 0, tide: "high" };
 const DEFAULT_OVERLAYS: Record<OverlayKey, boolean> = { alerts: true, stress: true, network: false, roads: true, waterways: true, historical: true, streets: false };
 const THEME_KEY = "ufn-theme";
+const LIVE_UPDATE_MS = 600_000;   // matches the backend's 10-min live-rainfall cache
 
 export default function Dashboard() {
   const [cities, setCities] = useState<CityEntry[]>([]);
@@ -25,7 +27,8 @@ export default function Dashboard() {
   const [staticGrid, setStaticGrid] = useState<StaticGrid | null>(null);
   const [params, setParamsState] = useState<Params>(DEFAULT_PARAMS);
   const [nowcast, setNowcast] = useState<Nowcast | null>(null);
-  const [frame, setFrame] = useState(0);
+  const [timeline, setTimeline] = useState<NowcastTimeline | null>(null);   // 15-min model frames (optional)
+  const [tMin, setTMin] = useState(0);                                       // selected forecast time, minutes after NOW
   const [surface, setSurface] = useState<Surface>("risk");
   const [overlays, setOverlays] = useState(DEFAULT_OVERLAYS);
   const [selected, setSelected] = useState<number | null>(null);
@@ -38,8 +41,9 @@ export default function Dashboard() {
   const [showProv, setShowProv] = useState(false);
   const [baseline, setBaseline] = useState<Baseline | null>(null);
   const [theme, setTheme] = useState<Theme | null>(null);   // null until the stored theme is read
-  const [streetStatus, setStreetStatus] = useState<StreetStatus | null>(null);
   const [selectedRoad, setSelectedRoad] = useState<RoadSegment | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(false);   // opt-in, live mode only
+  const [refreshTick, setRefreshTick] = useState(0);
 
   // theme: read what the pre-paint script applied; persist changes
   useEffect(() => { setTheme(document.documentElement.dataset.theme === "light" ? "light" : "dark"); }, []);
@@ -59,7 +63,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     setMeta(null); setNowcast(null); setStaticGrid(null); setSelected(null); setDetail(null); setBaseline(null);
-    setStreetStatus(null); setSelectedRoad(null);
+    setTimeline(null); setSelectedRoad(null);
     api.meta(cityId).then(setMeta).catch((e) => setError(`Study area failed to load: ${e.message}`));
     api.staticGrid(cityId).then(setStaticGrid).catch(() => setStaticGrid(null));   // elevation/imperviousness layers only
   }, [cityId]);
@@ -78,22 +82,21 @@ export default function Dashboard() {
           else setError(`Nowcast failed: ${e.message}`);
         })
         .finally(() => !stale && setLoading(false));
+      // 15-min model forecast from the same (cached) model run; on failure the hourly frames are shown
+      api.timeline(meta.id, params)
+        .then((tl) => { if (!stale) setTimeline(tl); })
+        .catch(() => { if (!stale) setTimeline(null); });
     }, 220);
     return () => { stale = true; clearTimeout(t); };
-  }, [meta, params]);
+  }, [meta, params, refreshTick]);
 
-  // derived street flood status: fetched only while the overlay (or a selected road) needs it
-  const needStreets = overlays.streets || selectedRoad != null;
+  // opt-in live update cycle (10 min): re-request the live nowcast; the backend refreshes Open-Meteo on the same cycle
+  const liveAuto = autoRefresh && params.source === "live";
   useEffect(() => {
-    if (!meta || !needStreets) return;
-    let stale = false;
-    const t = setTimeout(() => {
-      api.streetStatus(meta.id, params)
-        .then((s) => { if (!stale) setStreetStatus(s); })
-        .catch((e) => { if (!stale) setError(`Street flood status failed: ${e.message}`); });
-    }, 220);
-    return () => { stale = true; clearTimeout(t); };
-  }, [meta, params, needStreets]);
+    if (!liveAuto) return;
+    const t = setInterval(() => setRefreshTick((n) => n + 1), LIVE_UPDATE_MS);
+    return () => clearInterval(t);
+  }, [liveAuto]);
 
   const selectCell = useCallback((cell: number | null) => { setSelected(cell); setSelectedRoad(null); }, []);
   const selectRoad = useCallback((r: RoadSegment) => { setSelectedRoad(r); setSelected(null); }, []);
@@ -103,7 +106,8 @@ export default function Dashboard() {
     if (!meta || selected == null || !nowcast) { setDetail(null); return; }
     let stale = false;
     setDetailState({ loading: true, error: null });
-    api.cell(meta.id, selected, params)
+    api.cellTimeline(meta.id, selected, params)
+      .catch((e) => (String(e.message).includes("not modelled") ? Promise.reject(e) : api.cell(meta.id, selected, params)))
       .then((d) => { if (!stale) { setDetail(d); setDetailState({ loading: false, error: null }); } })
       .catch((e) => { if (!stale) { setDetail(null); setDetailState({ loading: false, error: e.message.includes("not modelled") ? "That location is water or outside the modelled area." : e.message }); } });
     return () => { stale = true; };
@@ -126,7 +130,12 @@ export default function Dashboard() {
 
   const current = useMemo(() => (nowcast ? scenarioMetrics(nowcast) : null), [nowcast]);
   const currentLabel = meta ? describeScenario(params, meta.model.scenarios[params.preset]?.label) : "";
-  const alerts = nowcast?.alerts[frame] ?? null;
+  // forecast steps on show: 15-min model frames when available, else the hourly /nowcast frames
+  const series = useMemo(() => (timeline && nowcast && timeline.source === nowcast.source ? seriesFromTimeline(timeline)
+    : nowcast ? seriesFromNowcast(nowcast) : null), [timeline, nowcast]);
+  const frame = series ? frameIndexAt(series, tMin) : 0;
+  const frameT = series?.frames[frame]?.t_min ?? 0;
+  const alerts = series?.alerts[frame] ?? null;
   const updated = useMemo(() => {
     if (!nowcast || !meta) return "—";
     const d = new Date(nowcast.generated);
@@ -179,6 +188,7 @@ export default function Dashboard() {
               overlays={overlays} toggleOverlay={(k) => setOverlays((o) => ({ ...o, [k]: !o[k] }))}
               alerts={alerts} selected={selected} onSelectAlert={selectCell}
               baseline={baseline} current={current} currentLabel={currentLabel}
+              autoRefresh={autoRefresh} setAutoRefresh={setAutoRefresh}
               onCapture={() => current && setBaseline({ label: currentLabel, metrics: current })}
               onClearBaseline={() => setBaseline(null)} />
           )}
@@ -186,27 +196,27 @@ export default function Dashboard() {
 
         <section className="order-1 flex min-h-[60vh] flex-col lg:order-2 lg:min-h-0">
           <div className="relative min-h-0 flex-1">
-            {meta && theme && <MapView meta={meta} theme={theme} nowcast={nowcast} staticGrid={staticGrid} frame={frame}
+            {meta && theme && <MapView meta={meta} theme={theme} series={series} staticGrid={staticGrid} frame={frame}
               surface={surface} overlays={overlays} alerts={alerts?.items ?? []}
               selected={selected} focus={focus} onSelect={selectCell}
-              streetStatus={streetStatus} selectedRoad={selectedRoad?.id ?? null} onSelectRoad={selectRoad} />}
+              selectedRoad={selectedRoad?.id ?? null} onSelectRoad={selectRoad} />}
             {meta && <div className="absolute left-2 top-2 z-10"><MapSearch city={meta.id} onPick={pickPlace} /></div>}
             <div className="pointer-events-none absolute bottom-2 left-2 flex max-w-[70%] flex-col items-start gap-1.5">
-              {theme && <MapLegend theme={theme} surface={surface} overlays={overlays} frameLabel={fmtT((nowcast?.frames[frame]?.t_min) ?? 0)} />}
+              {theme && <MapLegend theme={theme} surface={surface} overlays={overlays} frameLabel={fmtT(frameT)} />}
               <div className="bg-ground/80 px-2 py-1 text-[11px] text-dim">
                 Prototype — representative drainage network; environmental layers use public data.
               </div>
             </div>
           </div>
-          <div className="h-[128px] shrink-0">
-            <Timeline nowcast={nowcast} frame={frame} onFrame={setFrame} designIntensity={meta?.drainage?.design_i_mmph ?? null} />
+          <div className="h-[150px] shrink-0">
+            <Timeline nowcast={nowcast} series={series} frame={frame} onPick={setTMin} designIntensity={meta?.drainage?.design_i_mmph ?? null} />
           </div>
         </section>
 
         <aside className="order-3 min-h-0 border-line bg-panel lg:border-l">
-          {meta && <IntelPanel meta={meta} nowcast={nowcast} frame={frame} detail={detail}
+          {meta && <IntelPanel meta={meta} nowcast={nowcast} series={series} frame={frame} detail={detail}
             loading={detailState.loading} error={detailState.error} onClose={() => selectCell(null)}
-            road={selectedRoad} streetStatus={streetStatus} onSelectCell={selectCell} />}
+            road={selectedRoad} onSelectCell={selectCell} />}
         </aside>
 
         {showProv && meta && <Provenance meta={meta} onClose={() => setShowProv(false)} />}
